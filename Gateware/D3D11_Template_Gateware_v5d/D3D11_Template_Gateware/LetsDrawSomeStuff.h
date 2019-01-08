@@ -17,6 +17,14 @@ class LetsDrawSomeStuff
 	ID3D11DeviceContext *myContext = nullptr;
 
 	// TODO: Add your own D3D11 variables here (be sure to "Release()" them when done!)
+	ID3D11InputLayout *myInputLayout = nullptr;
+	ID3D11VertexShader *myVertexShader = nullptr;
+	ID3D11PixelShader *myPixelShader = nullptr;
+	ID3DBlob *myVertexShaderBlob = nullptr;
+	ID3DBlob *myPixelShaderBlob = nullptr;
+	ID3D11Buffer *myVertexBuffer = nullptr;
+	ID3D11Buffer *myIndexBuffer = nullptr;
+	ID3D11Buffer *myConstantBuffer = nullptr;
 
 public:
 	// Init
@@ -41,8 +49,21 @@ LetsDrawSomeStuff::LetsDrawSomeStuff(GW::SYSTEM::GWindow* attatchPoint)
 			mySurface->GetContext((void**)&myContext);
 
 			// TODO: Create new DirectX stuff here! (Buffers, Shaders, Layouts, Views, Textures, etc...)
-			
+
+			myDevice->CreateVertexShader(myVertexShaderBlob->GetBufferPointer(), myVertexShaderBlob->GetBufferSize(), nullptr, &myVertexShader);
+
 			// Layouts
+			D3D11_INPUT_ELEMENT_DESC layout[] =
+			{
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			};
+			
+			UINT numElements = ARRAYSIZE(layout);
+
+			myDevice->CreateInputLayout(layout, numElements, myVertexShaderBlob->GetBufferPointer(), myVertexShaderBlob->GetBufferSize(), &myInputLayout);
+			myDevice->CreatePixelShader(myPixelShaderBlob->GetBufferPointer(), myPixelShaderBlob->GetBufferSize(), nullptr, &myPixelShader);
 		}
 	}
 }
@@ -54,7 +75,11 @@ LetsDrawSomeStuff::~LetsDrawSomeStuff()
 	myDevice->Release();
 	mySwapChain->Release();
 	myContext->Release();
-
+	myInputLayout->Release();
+	myVertexShader->Release();
+	myPixelShader->Release();
+	myVertexShaderBlob ->Release();
+	myPixelShaderBlob ->Release();
 	// TODO: "Release()" more stuff here!
 
 
@@ -66,7 +91,7 @@ LetsDrawSomeStuff::~LetsDrawSomeStuff()
 }
 
 struct Vertex {
-	float pos[3];
+	float pos[4];
 	float color[4];
 };
 
@@ -78,6 +103,15 @@ void LetsDrawSomeStuff::Render()
 		// this could be changed during resolution edits, get it every frame
 		ID3D11RenderTargetView *myRenderTargetView = nullptr;
 		ID3D11DepthStencilView *myDepthStencilView = nullptr;
+
+		Vertex tri[] = {
+			{ {0.0f, 0.5f, 0.0f, 1.0f},{1,1,1,1} },
+			{ {0.5f, -0.5f, 0.0f, 1.0f},{1,1,1,1} },
+			{ {-0.5f, -0.5f, 0.0f, 1.0f},{1,1,1,1} }
+		};
+
+
+
 		if (G_SUCCESS(mySurface->GetRenderTarget((void**)&myRenderTargetView)))
 		{
 			// Grab the Z Buffer if one was requested
@@ -96,7 +130,21 @@ void LetsDrawSomeStuff::Render()
 			myContext->ClearRenderTargetView(myRenderTargetView, d_green);
 			
 			// TODO: Set your shaders, Update & Set your constant buffers, Attatch your vertex & index buffers, Set your InputLayout & Topology & Draw!
-			myContext->Draw(25, 150);
+			D3D11_BUFFER_DESC bDesc;
+			D3D11_SUBRESOURCE_DATA subData;
+
+			ZeroMemory(&bDesc, sizeof(bDesc));
+			ZeroMemory(&subData, sizeof(bDesc));
+			
+			bDesc.Usage = D3D11_USAGE_DEFAULT;
+			bDesc.ByteWidth = sizeof(tri) * 3;
+			bDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+			bDesc.CPUAccessFlags = 0;
+			
+			subData.pSysMem = tri;
+
+			myDevice->CreateBuffer(&bDesc, &subData, &myVertexBuffer);
+
 			// Present Backbuffer using Swapchain object
 			// Framerate is currently unlocked, we suggest "MSI Afterburner" to track your current FPS and memory usage.
 			mySwapChain->Present(0, 0); // set first argument to 1 to enable vertical refresh sync with display
