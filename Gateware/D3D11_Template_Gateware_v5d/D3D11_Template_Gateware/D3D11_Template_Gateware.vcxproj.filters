@@ -47,10 +47,17 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="LetsDrawSomeStuff.h" />
+    <ClInclude Include="MathFunctions.h" />
+    <ClInclude Include="VertexShader.h" />
+    <ClInclude Include="DDSTextureLoader.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Gateware Source">
       <UniqueIdentifier>{b6c72e31-647e-44cd-a60d-0b316676c04d}</UniqueIdentifier>
     </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="VertexShader_PPIV.hlsl" />
+    <FxCompile Include="PixelShader_PPIV.hlsl" />
   </ItemGroup>
 </Project>
