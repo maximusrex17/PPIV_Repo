@@ -8,17 +8,21 @@ cbuffer ConstantBuffer : register(b0) {
 	matrix vsWorld;
 	matrix vsView;
 	matrix vsProjection;
-	float4 vsColor;
+	float4 vsLightDir[2];
+	float4 vsLightColor[2];
+	float4 vsOutputColor;
 }
 
 struct InputVertex {
 	float4 pos : POSITION;
-	float2 UV : COLOR;
+	float2 uv : UV;
+	float3 norm : NORMAL;
 };
 
 struct OutputVertex {
 	float4 pos : SV_POSITION; // System Value
-	float2 UV : COLOR;
+	float2 uv : UV;
+	float3 norm : NORMAL;
 };
 
 

@@ -7,29 +7,43 @@
 #include <d3d11.h>
 #include"VertexShader_PPIV.csh"
 #include"PixelShader_PPIV.csh"
-#include "MathFunctions.h"
 #include "VertexShader.h"
 #include <directxmath.h>
 #include <vector>
 // FBX includes
 #include "DDSTextureLoader.h"
-#include <fbxsdk.h>
+#include "fbxsdk.h"
 #include <iostream>
 
 using namespace std;
 using namespace DirectX;
+
+struct Vertex {
+	float pos[4];
+	float UV[2];
+	float norm[3];
+};
 
 struct ConstantBuffer
 {
 	XMMATRIX cWorld;
 	XMMATRIX cView;
 	XMMATRIX cProjection;
-	XMFLOAT4 cColor;
+	XMFLOAT4 cLightDir[2];
+	XMFLOAT4 cLightColor[2];
+	XMFLOAT4 cOutputColor;
 };
 
 //Vectors for Objects
 vector<Vertex> cube;
-vector<unsigned int> cubeIndicies;
+vector<unsigned  int> cubeIndicies;
+
+XMMATRIX worldMatrix;
+XMMATRIX viewMatrix;
+XMMATRIX projectionMatrix;
+XMFLOAT4 LightDir[2];
+XMFLOAT4 LightColor[2];
+XMFLOAT4 OutputColor;
 
 // Simple Container class to make life easier/cleaner
 class LetsDrawSomeStuff
@@ -45,21 +59,18 @@ class LetsDrawSomeStuff
 	ID3D11InputLayout *myInputLayout = nullptr;
 	ID3D11VertexShader *myVertexShader = nullptr;
 	ID3D11PixelShader *myPixelShader = nullptr;
-	ID3DBlob *myVertexShaderBlob = nullptr;
-	ID3DBlob *myPixelShaderBlob = nullptr;
 	ID3D11Buffer *myVertexBuffer = nullptr;
 	ID3D11Buffer *myIndexBuffer = nullptr;
 	ID3D11Buffer *myConstantBuffer = nullptr;
 	D3D11_VIEWPORT myPort;
 	
 	//Matricies
-	XMMATRIX worldMatrix;
-	XMMATRIX viewMatrix;
-	XMMATRIX projectionMatrix;
+
+	ID3D11ShaderResourceView* myShaderResource = nullptr;
+	ID3D11SamplerState* mySampler = nullptr;
 	
 
 public:
-
 	// Init
 	LetsDrawSomeStuff(GW::SYSTEM::GWindow* attatchPoint);
 	// Shutdown
@@ -67,111 +78,6 @@ public:
 	// Draw
 	void Render();
 };
-
-void ProcessFbxMesh(FbxNode* Node, vector<Vertex>& verts, vector<unsigned int>& indicies)
-{
-	float scale = 40.0f;
-	//FBX Mesh stuff
-	int childrenCount = Node->GetChildCount();
-
-	for (int a = 0; a < childrenCount; a++)
-	{
-		FbxNode *childNode = Node->GetChild(a);
-		FbxMesh *mesh = childNode->GetMesh();
-
-		if (mesh != NULL)
-		{
-			const char* name = mesh->GetName();
-
-			FbxVector4* lControlPoints = mesh->GetControlPoints();
-			const int polyCount = mesh->GetPolygonCount();
-
-			int VertexId = 0;
-			for (int i = 0; i < polyCount; i++)
-			{
-				int polygonSize = mesh->GetPolygonSize(i);
-				for (int j = 0; j < polygonSize; j++)
-				{
-					// create a temporary Vertex
-					Vertex temp;
-
-					int controlPointIndex = mesh->GetPolygonVertex(i, j);
-					FbxVector4 pos = lControlPoints[controlPointIndex];
-
-					temp.pos[0] = (float)pos.mData[0] * scale;
-					temp.pos[1] = (float)pos.mData[1] * scale;
-					temp.pos[2] = (float)pos.mData[2] * scale;
-					temp.pos[3] = 1.0f;
-
-					for (int k = 0; k < mesh->GetElementUVCount(); k++)
-					{
-						FbxGeometryElementUV *fbxUV = mesh->GetElementUV(k);
-						int textIndex = mesh->GetTextureUVIndex(i, j);
-
-						FbxVector2 uv = GetVertexUV(fbxUV, VertexId, controlPointIndex);
-						temp.UV[0] = (float)uv.mData[0];
-						temp.UV[1] = 1.0f - (float)uv.mData[1];
-					}
-
-					verts.push_back(temp);
-					indicies.push_back(VertexId);
-					VertexId++;
-				}
-			}
-
-			cube = verts;
-			cubeIndicies = indicies;
-
-			//=======================Texture===============================================
-			int materialCount = childNode->GetSrcObjectCount<FbxSurfaceMaterial>();
-
-			for (int index = 0; index < materialCount; index++)
-			{
-				FbxSurfaceMaterial* material = (FbxSurfaceMaterial*)childNode->GetSrcObject<FbxSurfaceMaterial>(index);
-
-				if (material != NULL)
-				{
-					// This only gets the material of type sDiffuse, you probably need to traverse all Standard Material Property by its name to get all possible textures.
-					FbxProperty prop = material->FindProperty(FbxSurfaceMaterial::sDiffuse);
-
-					// Check if it's layeredtextures
-					int layeredTextureCount = prop.GetSrcObjectCount<FbxLayeredTexture>();
-
-					if (layeredTextureCount > 0)
-					{
-						for (int j = 0; j < layeredTextureCount; j++)
-						{
-							FbxLayeredTexture* layered_texture = FbxCast<FbxLayeredTexture>(prop.GetSrcObject<FbxLayeredTexture>(j));
-							int lcount = layered_texture->GetSrcObjectCount<FbxTexture>();
-
-							for (int k = 0; k < lcount; k++)
-							{
-								FbxFileTexture* texture = FbxCast<FbxFileTexture>(layered_texture->GetSrcObject<FbxTexture>(k));
-								// Then, you can get all the properties of the texture, include its name
-								const char* textureName = texture->GetFileName();
-							}
-						}
-					}
-					else
-					{
-						// Directly get textures
-						int textureCount = prop.GetSrcObjectCount<FbxTexture>();
-						for (int j = 0; j < textureCount; j++)
-						{
-							FbxFileTexture* texture = FbxCast<FbxFileTexture>(prop.GetSrcObject<FbxTexture>(j));
-							// Then, you can get all the properties of the texture, include its name
-
-							FbxProperty p = texture->RootProperty.Find("Assets/box.fbx");
-
-						}
-					}
-				}
-			}
-
-			ProcessFbxMesh(childNode, verts, indicies);
-		}
-	}
-}
 
 FbxVector2 GetVertexUV(FbxGeometryElementUV* uvPtr, unsigned int VertexID, unsigned int controlPointIndex)
 {
@@ -235,6 +141,109 @@ FbxVector2 GetVertexUV(FbxGeometryElementUV* uvPtr, unsigned int VertexID, unsig
 	return FbxVector2(0.0f, 0.0f);
 }
 
+void ProcessFbxMesh(FbxNode* Node, vector<Vertex>& verts, vector<unsigned int>& indicies)
+{
+	float scale = 40.0f;
+	//FBX Mesh stuff
+	int childrenCount = Node->GetChildCount();
+
+	for (int a = 0; a < childrenCount; a++)
+	{
+		FbxNode *childNode = Node->GetChild(a);
+		FbxMesh *mesh = childNode->GetMesh();
+
+		if (mesh != NULL)
+		{
+			const char* name = mesh->GetName();
+
+			FbxVector4* lControlPoints = mesh->GetControlPoints();
+			const int polyCount = mesh->GetPolygonCount();
+
+			int VertexId = 0;
+			for (int i = 0; i < polyCount; i++)
+			{
+				int polygonSize = mesh->GetPolygonSize(i);
+				for (int j = 0; j < polygonSize; j++)
+				{
+					// create a temporary Vertex
+					Vertex temp;
+
+					int controlPointIndex = mesh->GetPolygonVertex(i, j);
+					FbxVector4 pos = lControlPoints[controlPointIndex];
+
+					temp.pos[0] = (float)pos.mData[0] / scale;
+					temp.pos[1] = (float)pos.mData[1] / scale;
+					temp.pos[2] = (float)pos.mData[2] / scale;
+					temp.pos[3] = 1.0f;
+
+					for (int k = 0; k < mesh->GetElementUVCount(); k++)
+					{
+						FbxGeometryElementUV *fbxUV = mesh->GetElementUV(k);
+						int textIndex = mesh->GetTextureUVIndex(i, j);
+
+						FbxVector2 uv = GetVertexUV(fbxUV, VertexId, controlPointIndex);
+						temp.UV[0] = (float)uv.mData[0];
+						temp.UV[1] = 1.0f - (float)uv.mData[1];
+					}
+
+					verts.push_back(temp);
+					indicies.push_back(VertexId);
+
+					VertexId++;
+				}
+			}
+
+			//=======================Texture===============================================
+			int materialCount = childNode->GetSrcObjectCount<FbxSurfaceMaterial>();
+
+			for (int index = 0; index < materialCount; index++)
+			{
+				FbxSurfaceMaterial* material = (FbxSurfaceMaterial*)childNode->GetSrcObject<FbxSurfaceMaterial>(index);
+
+				if (material != NULL)
+				{
+					// This only gets the material of type sDiffuse, you probably need to traverse all Standard Material Property by its name to get all possible textures.
+					FbxProperty prop = material->FindProperty(FbxSurfaceMaterial::sDiffuse);
+
+					// Check if it's layeredtextures
+					int layeredTextureCount = prop.GetSrcObjectCount<FbxLayeredTexture>();
+
+					if (layeredTextureCount > 0)
+					{
+						for (int j = 0; j < layeredTextureCount; j++)
+						{
+							FbxLayeredTexture* layered_texture = FbxCast<FbxLayeredTexture>(prop.GetSrcObject<FbxLayeredTexture>(j));
+							int lcount = layered_texture->GetSrcObjectCount<FbxTexture>();
+
+							for (int k = 0; k < lcount; k++)
+							{
+								FbxFileTexture* texture = FbxCast<FbxFileTexture>(layered_texture->GetSrcObject<FbxTexture>(k));
+								// Then, you can get all the properties of the texture, include its name
+								const char* textureName = texture->GetFileName();
+							}
+						}
+					}
+					else
+					{
+						// Directly get textures
+						int textureCount = prop.GetSrcObjectCount<FbxTexture>();
+						for (int j = 0; j < textureCount; j++)
+						{
+							FbxFileTexture* texture = FbxCast<FbxFileTexture>(prop.GetSrcObject<FbxTexture>(j));
+							// Then, you can get all the properties of the texture, include its name
+
+							FbxProperty p = texture->RootProperty.Find("cubeTexture");
+
+						}
+					}
+				}
+			}
+
+			ProcessFbxMesh(childNode, verts, indicies);
+		}
+	}
+}
+
 // Init
 LetsDrawSomeStuff::LetsDrawSomeStuff(GW::SYSTEM::GWindow* attatchPoint)
 {
@@ -263,13 +272,45 @@ LetsDrawSomeStuff::LetsDrawSomeStuff(GW::SYSTEM::GWindow* attatchPoint)
 			//Create Pixel Shader
 			myDevice->CreatePixelShader(PixelShader_PPIV, sizeof(PixelShader_PPIV), nullptr, &myPixelShader);
 
+			// Change the following filename to a suitable filename value.
+			const char* lFilename = "Assets/cube.fbx";
+
+			// Initialize the SDK manager. This object handles memory management.
+			FbxManager* lSdkManager = FbxManager::Create();
+
+			// Create the IO settings object.
+			FbxIOSettings *ios = FbxIOSettings::Create(lSdkManager, IOSROOT);
+			lSdkManager->SetIOSettings(ios);
+
+			// Create an importer using the SDK manager.
+			FbxImporter* lImporter = FbxImporter::Create(lSdkManager, "");
+
+			// Use the first argument as the filename for the importer.
+			if (!lImporter->Initialize(lFilename, -1, lSdkManager->GetIOSettings())) {
+				printf("Call to FbxImporter::Initialize() failed.\n");
+				printf("Error returned: %s\n\n", lImporter->GetStatus().GetErrorString());
+				exit(-1);
+			}
+			// Create a new scene so that it can be populated by the imported file.
+			FbxScene* lScene = FbxScene::Create(lSdkManager, "myScene");
+
+			// Import the contents of the file into the scene.
+			lImporter->Import(lScene);
+
+			// The file is imported, so get rid of the importer.
+			lImporter->Destroy();
+
+			// Process the scene and build DirectX Arrays
+			ProcessFbxMesh(lScene->GetRootNode(), cube, cubeIndicies);
+
 			//Create Input Layout
 			D3D11_INPUT_ELEMENT_DESC ieDesc[] = {
-				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-				{ "UV", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "UV", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 			};
 
-			myDevice->CreateInputLayout(ieDesc, ARRAYSIZE(ieDesc), VertexShader_PPIV, sizeof(VertexShader_PPIV), &myInputLayout);
+			hr = myDevice->CreateInputLayout(ieDesc, ARRAYSIZE(ieDesc), VertexShader_PPIV, sizeof(VertexShader_PPIV), &myInputLayout);
 
 			//Vertex tri[] = {
 			//	{ {0.0f, 0.5f, 0.0f, 1.0f}},
@@ -314,12 +355,12 @@ LetsDrawSomeStuff::LetsDrawSomeStuff(GW::SYSTEM::GWindow* attatchPoint)
 
 			//Vertex Buffer
 			bDesc.Usage = D3D11_USAGE_DEFAULT;
-			bDesc.ByteWidth = sizeof(Vertex) * 3;
+			bDesc.ByteWidth = sizeof(Vertex) * cube.size();
 			bDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 			bDesc.CPUAccessFlags = 0;
 			bDesc.MiscFlags = 0;
 			bDesc.StructureByteStride = 0;
-			subData.pSysMem = tri;
+			subData.pSysMem = cube.data();
 			hr = myDevice->CreateBuffer(&bDesc, &subData, &myVertexBuffer);
 
 
@@ -344,13 +385,13 @@ LetsDrawSomeStuff::LetsDrawSomeStuff(GW::SYSTEM::GWindow* attatchPoint)
 			//	23,20,22
 			//};
 
-			////Index Buffer
-			//bDesc.Usage = D3D11_USAGE_DEFAULT;
-			//bDesc.ByteWidth = sizeof(WORD) * 36;
-			//bDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
-			//bDesc.CPUAccessFlags = 0;
-			//subData.pSysMem = indices;
-			//myDevice->CreateBuffer(&bDesc, &subData, &myIndexBuffer);
+			//Index Buffer
+			bDesc.Usage = D3D11_USAGE_DEFAULT;
+			bDesc.ByteWidth = sizeof(unsigned int) * cubeIndicies.size();
+			bDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+			bDesc.CPUAccessFlags = 0;
+			subData.pSysMem = cubeIndicies.data();
+			myDevice->CreateBuffer(&bDesc, &subData, &myIndexBuffer);
 
 			//Constant Buffer
 			bDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -358,6 +399,19 @@ LetsDrawSomeStuff::LetsDrawSomeStuff(GW::SYSTEM::GWindow* attatchPoint)
 			bDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 			bDesc.CPUAccessFlags = 0;
 			hr = myDevice->CreateBuffer(&bDesc, nullptr, &myConstantBuffer);
+
+			hr = CreateDDSTextureFromFile(myDevice, L"Assets/boxTexture.dds", nullptr, &myShaderResource);
+
+			// Create the sample state
+			D3D11_SAMPLER_DESC sampDesc = {};
+			sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+			sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+			sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+			sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+			sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+			sampDesc.MinLOD = 0;
+			sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
+			hr = myDevice->CreateSamplerState(&sampDesc, &mySampler);
 
 			//World Matrix
 			worldMatrix = XMMatrixIdentity();
@@ -387,6 +441,12 @@ LetsDrawSomeStuff::~LetsDrawSomeStuff()
 	myInputLayout->Release();
 	myVertexShader->Release();
 	myPixelShader->Release();
+	myVertexBuffer->Release();
+	myIndexBuffer->Release();
+	myConstantBuffer->Release();
+	myShaderResource->Release();
+	mySampler->Release();
+
 	// TODO: "Release()" more stuff here!
 	//delete &WorldMatrix;
 	//delete &ProjectionMatrix;
@@ -402,7 +462,7 @@ LetsDrawSomeStuff::~LetsDrawSomeStuff()
 // Draw
 void LetsDrawSomeStuff::Render()
 {
-	float timeSpent = 0;
+	float timeSpent = 0, curDeg = 0;
 	if (mySurface) // valid?
 	{		
 		// this could be changed during resolution edits, get it every frame
@@ -426,12 +486,29 @@ void LetsDrawSomeStuff::Render()
 			const float black[] = { 0, 0, 0.5f, 1 };
 			myContext->ClearRenderTargetView(myRenderTargetView, black);
 			
-			timeSpent += 0.5f;
-
-			curDeg = UpdateDeg(timeSpent, curDeg);
+			timeSpent += 0.01f;
+			curDeg += timeSpent;
 
 			//Rotate the cube around the origin
 			worldMatrix = XMMatrixRotationY(curDeg);
+
+			// Setup our lighting parameters
+			XMFLOAT4 myLightDirs[] =
+			{
+				XMFLOAT4(-0.577f, 0.577f, -0.577f, 1.0f),
+				XMFLOAT4(0.0f, 0.0f, -1.0f, 1.0f),
+			};
+			XMFLOAT4 myLightColors[2] =
+			{
+				XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f),
+				XMFLOAT4(1, 0, 0, 1.0f)
+			};
+
+			// Rotate the second light around the origin
+			XMMATRIX mRotate = XMMatrixRotationY(-2.0f * 0.0f);
+			XMVECTOR vLightDir = XMLoadFloat4(&myLightDirs[1]);
+			myLightDirs = XMVector3Transform(myLightDirs, mRotate);
+			XMStoreFloat4(&vLightDirs[1], myLightDirs);
 						
 			// TODO: Set your shaders, Update & Set your constant buffers, Attatch your Vertex & index buffers, Set your InputLayout & Topology & Draw!
 						
@@ -449,7 +526,7 @@ void LetsDrawSomeStuff::Render()
 			myContext->IASetVertexBuffers(0, 1, tempVB, strides, offsets);
 
 			//Set Index Buffer
-			//myContext->IASetIndexBuffer(myIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+			myContext->IASetIndexBuffer(myIndexBuffer, DXGI_FORMAT_R32_UINT, 0);
 
 			
 			//Set Constant Buffer
@@ -457,9 +534,11 @@ void LetsDrawSomeStuff::Render()
 			constBuff.cWorld = XMMatrixTranspose(worldMatrix);
 			constBuff.cView = XMMatrixTranspose(viewMatrix);
 			constBuff.cProjection = XMMatrixTranspose(projectionMatrix);
-			constBuff.cColor = XMFLOAT4(1, 1, 1, 1);
-
-			//Update Constant Buffer
+			constBuff.cLightDir[0] = LightDirs[0];
+			constBuff.cLightDir[1] = LightDirs[1];
+			constBuff.cLightColor[0] = LightColors[0];
+			constBuff.cLightColor[1] = LightColors[1];
+			constBuff.cOutputColor = XMFLOAT4(0, 0, 0, 0);
 			myContext->UpdateSubresource(myConstantBuffer, 0, nullptr, &constBuff, 0, 0);
 
 		//TODO: Render Cube
@@ -469,11 +548,28 @@ void LetsDrawSomeStuff::Render()
 
 			//Set Pixel Shader and Pixel Constant Buffer
 			myContext->PSSetConstantBuffers(0, 1, &myConstantBuffer);
-			myContext->PSSetShader(myPixelShader, nullptr, 0);			
-			
-			//Draw Cube
-			myContext->Draw(3, 0);
+			myContext->PSSetShader(myPixelShader, nullptr, 0);		
+			myContext->PSSetShaderResources(0, 1, &myShaderResource);
+			myContext->PSSetSamplers(0, 1, &mySampler);
 
+
+			//Draw Cube
+			myContext->DrawIndexed(cubeIndicies.size(), 0, 0);
+
+			for (int m = 0; m < 2; m++)
+			{
+				XMMATRIX mLight = XMMatrixTranslationFromVector(5.0f * XMLoadFloat4(&vLightDirs[m]));
+				XMMATRIX mLightScale = XMMatrixScaling(0.2f, 0.2f, 0.2f);
+				mLight = mLightScale * mLight;
+
+				// Update the world variable to reflect the current light
+				constBuff.world = XMMatrixTranspose(mLight);
+				cb1.vOutputColor = vLightColors[m];
+				g_pImmediateContext->UpdateSubresource(g_pConstantBuffer, 0, nullptr, &cb1, 0, 0);
+
+				g_pImmediateContext->PSSetShader(g_pPixelShaderSolid, nullptr, 0);
+				g_pImmediateContext->DrawIndexed(numIndices, 0, 0);
+			}
 			// Present Backbuffer using Swapchain object
 			// Framerate is currently unlocked, we suggest "MSI Afterburner" to track your current FPS and memory usage.
 

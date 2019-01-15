@@ -44,10 +44,10 @@
     <ClCompile Include="Gateware Redistribution R5d\Source\G_System\GWindow.cpp">
       <Filter>Gateware Source</Filter>
     </ClCompile>
+    <ClCompile Include="DDSTextureLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="LetsDrawSomeStuff.h" />
-    <ClInclude Include="MathFunctions.h" />
     <ClInclude Include="VertexShader.h" />
     <ClInclude Include="DDSTextureLoader.h" />
   </ItemGroup>
