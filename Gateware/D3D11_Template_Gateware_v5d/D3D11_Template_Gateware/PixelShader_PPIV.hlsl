@@ -28,3 +28,8 @@ float4 main(OutputVertex InputPixel) : SV_TARGET //System Value
 	finalColor.a = 1;
 	return finalColor;
 }
+
+float4 PSSolid(OutputVertex outVert) : SV_TARGET 
+{
+	return vsOutputColor;
+}

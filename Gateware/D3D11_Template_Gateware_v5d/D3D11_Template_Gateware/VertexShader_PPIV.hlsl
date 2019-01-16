@@ -3,6 +3,8 @@
 //1. C++ Vetex Struct
 //2. Input Layout
 //3. HLSL Vertex Struct
+Texture2D txDiffuse : register(t0);
+SamplerState samLinear : register(s0);
 
 cbuffer ConstantBuffer : register(b0) {
 	matrix vsWorld;
@@ -33,6 +35,7 @@ OutputVertex main(InputVertex input)
 	output.pos = mul(input.pos, vsWorld);
 	output.pos = mul(output.pos, vsView);
 	output.pos = mul(output.pos, vsProjection);
-	
+	output.norm = mul(float4(input.norm, 1), vsWorld).xyz;
+	output.uv = input.uv;
 	return output;
 }
