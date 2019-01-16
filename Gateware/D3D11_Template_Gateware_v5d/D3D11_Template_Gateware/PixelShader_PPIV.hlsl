@@ -5,6 +5,7 @@ cbuffer ConstantBuffer : register(b0) {
 	matrix vsWorld;
 	matrix vsView;
 	matrix vsProjection;
+	matrix vsRotateY;
 	float4 vsLightDir[2];
 	float4 vsLightColor[2];
 	float4 vsOutputColor;

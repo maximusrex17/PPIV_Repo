@@ -59,5 +59,7 @@
   <ItemGroup>
     <FxCompile Include="VertexShader_PPIV.hlsl" />
     <FxCompile Include="PixelShader_PPIV.hlsl" />
+    <FxCompile Include="LightVertexShader_PPIV.hlsl" />
+    <FxCompile Include="LightPixelShader_PPIV.hlsl" />
   </ItemGroup>
 </Project>

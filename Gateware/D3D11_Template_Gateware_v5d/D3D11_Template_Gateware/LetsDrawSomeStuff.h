@@ -7,6 +7,8 @@
 #include <d3d11.h>
 #include"VertexShader_PPIV.csh"
 #include"PixelShader_PPIV.csh"
+#include"LightVertexShader_PPIV.csh"
+#include"LightPixelShader_PPIV.csh"
 #include "VertexShader.h"
 #include <directxmath.h>
 #include <vector>
@@ -17,6 +19,8 @@
 
 using namespace std;
 using namespace DirectX;
+
+#define RAND_NORMAL XMFLOAT3(rand()/float(RAND_MAX),rand()/float(RAND_MAX),rand()/float(RAND_MAX))
 
 struct Vertex {
 	float pos[4];
@@ -29,6 +33,7 @@ struct ConstantBuffer
 	XMMATRIX cWorld;
 	XMMATRIX cView;
 	XMMATRIX cProjection;
+	XMMATRIX cRotateY;
 	XMFLOAT4 cLightDir[2];
 	XMFLOAT4 cLightColor[2];
 	XMFLOAT4 cOutputColor;
@@ -41,9 +46,12 @@ vector<unsigned  int> cubeIndicies;
 XMMATRIX worldMatrix;
 XMMATRIX viewMatrix;
 XMMATRIX projectionMatrix;
+XMMATRIX ReturnViewMatrix;
 XMFLOAT4 LightDir[2];
 XMFLOAT4 LightColor[2];
 XMFLOAT4 OutputColor;
+
+float timeSpent = 0, curDeg = 0;
 
 // Simple Container class to make life easier/cleaner
 class LetsDrawSomeStuff
@@ -58,12 +66,15 @@ class LetsDrawSomeStuff
 	// TODO: Add your own D3D11 variables here (be sure to "Release()" them when done!)
 	ID3D11InputLayout *myInputLayout = nullptr;
 	ID3D11VertexShader *myVertexShader = nullptr;
+	ID3D11VertexShader *myVertexLightShader = nullptr;
 	ID3D11PixelShader *myPixelShader = nullptr;
-	ID3D11PixelShader *myPixelShaderSolid = nullptr;
+	ID3D11PixelShader *myLightPixelShader = nullptr;
 	ID3D11Buffer *myVertexBuffer = nullptr;
 	ID3D11Buffer *myIndexBuffer = nullptr;
 	ID3D11Buffer *myConstantBuffer = nullptr;
-	D3D11_VIEWPORT myPort;
+	D3D11_VIEWPORT myPort; 
+	D3D_DRIVER_TYPE myDriverType = D3D_DRIVER_TYPE_NULL;
+
 	
 	//Matricies
 
@@ -176,7 +187,16 @@ void ProcessFbxMesh(FbxNode* Node, vector<Vertex>& verts, vector<unsigned int>& 
 					temp.pos[1] = (float)pos.mData[1] / scale;
 					temp.pos[2] = (float)pos.mData[2] / scale;
 					temp.pos[3] = 1.0f;
+					
+					// Get the Normals array from the mesh
+					FbxArray<FbxVector4> normalsVec;
+					mesh->GetPolygonVertexNormals(normalsVec);
+					cout << "\nNormalVec Count:" << normalsVec.Size();
 
+					temp.norm[0] = normalsVec.GetAt(j).mData[0];
+					temp.norm[1] = normalsVec.GetAt(j).mData[1];
+					temp.norm[2] = normalsVec.GetAt(j).mData[2];
+					
 					for (int k = 0; k < mesh->GetElementUVCount(); k++)
 					{
 						FbxGeometryElementUV *fbxUV = mesh->GetElementUV(k);
@@ -184,7 +204,7 @@ void ProcessFbxMesh(FbxNode* Node, vector<Vertex>& verts, vector<unsigned int>& 
 
 						FbxVector2 uv = GetVertexUV(fbxUV, VertexId, controlPointIndex);
 						temp.UV[0] = (float)uv.mData[0];
-						temp.UV[1] = 1.0f - (float)uv.mData[1];
+						temp.UV[1] = 1.0f - (float)uv.mData[1];						
 					}
 
 					verts.push_back(temp);
@@ -233,7 +253,7 @@ void ProcessFbxMesh(FbxNode* Node, vector<Vertex>& verts, vector<unsigned int>& 
 							FbxFileTexture* texture = FbxCast<FbxFileTexture>(prop.GetSrcObject<FbxTexture>(j));
 							// Then, you can get all the properties of the texture, include its name
 
-							FbxProperty p = texture->RootProperty.Find("cubeTexture");
+							FbxProperty p = texture->RootProperty.Find("Crate");
 
 						}
 					}
@@ -269,10 +289,11 @@ LetsDrawSomeStuff::LetsDrawSomeStuff(GW::SYSTEM::GWindow* attatchPoint)
 
 			//Create Vertex Shader
 			myDevice->CreateVertexShader(VertexShader_PPIV, sizeof(VertexShader_PPIV), nullptr, &myVertexShader);
+			myDevice->CreateVertexShader(LightVertexShader_PPIV, sizeof(LightVertexShader_PPIV), nullptr, &myVertexLightShader);
 
 			//Create Pixel Shader
 			myDevice->CreatePixelShader(PixelShader_PPIV, sizeof(PixelShader_PPIV), nullptr, &myPixelShader);
-			myDevice->CreatePixelShader(PixelShader_PPIV, sizeof(PixelShader_PPIV), nullptr, &myPixelShaderSolid);
+			myDevice->CreatePixelShader(LightPixelShader_PPIV, sizeof(LightPixelShader_PPIV), nullptr, &myLightPixelShader);
 
 			// Change the following filename to a suitable filename value.
 			const char* lFilename = "Assets/cube.fbx";
@@ -365,7 +386,8 @@ LetsDrawSomeStuff::LetsDrawSomeStuff(GW::SYSTEM::GWindow* attatchPoint)
 			XMVECTOR Eye = XMVectorSet(0.0f, 4.0f, -10.0f, 0.0f);
 			XMVECTOR Focus = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 			XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-			viewMatrix = XMMatrixLookAtLH(Eye, Focus, Up);
+			ReturnViewMatrix = XMMatrixLookAtLH(Eye, Focus, Up);
+			viewMatrix = ReturnViewMatrix;
 
 
 			//Projection Matrix
@@ -384,9 +406,10 @@ LetsDrawSomeStuff::~LetsDrawSomeStuff()
 	mySwapChain->Release();
 	myContext->Release();
 	myInputLayout->Release();
+	myVertexLightShader->Release();
 	myVertexShader->Release();
 	myPixelShader->Release();
-	myPixelShaderSolid->Release();
+	myLightPixelShader->Release();
 	myVertexBuffer->Release();
 	myIndexBuffer->Release();
 	myConstantBuffer->Release();
@@ -412,7 +435,6 @@ float UpdateDeg(float time, float deg) {
 // Draw
 void LetsDrawSomeStuff::Render()
 {
-	float timeSpent = 0, curDeg = 0;
 	if (mySurface) // valid?
 	{		
 		// this could be changed during resolution edits, get it every frame
@@ -436,10 +458,25 @@ void LetsDrawSomeStuff::Render()
 			const float black[] = { 0.2f, 0.2f, 0.2f, 1 };
 			myContext->ClearRenderTargetView(myRenderTargetView, black);
 			
-			timeSpent += 0.5f;
-			curDeg = UpdateDeg(timeSpent, curDeg);
+			//timeSpent += 0.000001f;
+			//curDeg += UpdateDeg(timeSpent, curDeg);
+			
+			if (myDriverType == D3D_DRIVER_TYPE_REFERENCE)
+			{
+				curDeg += (float)XM_PI * 0.0125f;
+			}
+			else
+			{
+				static ULONGLONG timeStart = 0;
+				ULONGLONG timeCur = GetTickCount64();
+				if (timeStart == 0)
+					timeStart = timeCur;
+				curDeg = (timeCur - timeStart) / 1000.0f;
+			}
 
 			//Rotate the cube around the origin
+			worldMatrix = XMMatrixRotationY(curDeg);
+
 
 			// Setup our lighting parameters
 			XMFLOAT4 myLightDirs[] =
@@ -449,15 +486,100 @@ void LetsDrawSomeStuff::Render()
 			};
 			XMFLOAT4 myLightColors[2] =
 			{
-				XMFLOAT4(1, 0, 0, 1.0f),
-				XMFLOAT4(1, 1, 1, 1.0f)
+				XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f),
+				XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f)
 			};
 
+			//TODO: Change Second light color
+
+			//Press '1' to make light White 
+			if (GetAsyncKeyState(0x31)) {
+				myLightColors[1] = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+			}
+
+			//Press '2' to make light Red
+			if (GetAsyncKeyState(0x32)) {
+				myLightColors[1] = XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f);
+			}
+
+			//Press '3' to make light Green 
+			if (GetAsyncKeyState(0x33)) {
+				myLightColors[1] = XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f);
+			}
+
+			//Press '4' to make light Blue
+			if (GetAsyncKeyState(0x34)) {
+				myLightColors[1] = XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f);
+			}
+
+			//Mix Red and Green
+			if (GetAsyncKeyState(0x32) && GetAsyncKeyState(0x33)) {
+				myLightColors[1] = XMFLOAT4(1.0f, 1.0f, 0.0f, 1.0f);
+			}
+
+			//Mix Green and Blue
+			if (GetAsyncKeyState(0x33) && GetAsyncKeyState(0x34)) {
+				myLightColors[1] = XMFLOAT4(0.0f, 1.0f, 1.0f, 1.0f);
+			}
+
+			//Mix Red and Blue
+			if (GetAsyncKeyState(0x32) && GetAsyncKeyState(0x34)) {
+				myLightColors[1] = XMFLOAT4(1.0f, 0.0f, 1.0f, 1.0f);
+			}
+
+			//TODO: Add Camera Controls 'W' 'A' 'S' 'D' 'Up Arrow' 'Down Arrow' 'Left Arrow' 'Right Arrow'
+
+			//W Key: Forward
+			if (GetAsyncKeyState(0x57)) {
+				viewMatrix *= XMMatrixTranslation(0.0f, 0.0f, -0.01f);
+			}
+
+			//A Key: Left
+			if (GetAsyncKeyState(0x41)) {
+				viewMatrix *= XMMatrixTranslation(0.01f, 0.0f, 0.0f);
+			}
+
+			//S Key: Backward
+			if (GetAsyncKeyState(0x53)) {
+				viewMatrix *= XMMatrixTranslation(0.0f, 0.0f, 0.01f);
+			}
+
+			//D Key: Right
+			if (GetAsyncKeyState(0x44)) {
+				viewMatrix *= XMMatrixTranslation(-0.01f, 0.0f, 0.0f);
+			}
+
+			//Up Arrow Key: Rise
+			if (GetAsyncKeyState(VK_UP)) {
+				viewMatrix *= XMMatrixTranslation(0.0f, -0.01f, 0.0f);
+			}
+
+			//Down Arrow Key: Fall
+			if (GetAsyncKeyState(VK_DOWN)) {
+				viewMatrix *= XMMatrixTranslation(0.0f, 0.01f, 0.0f);
+			}
+
+			//Left Arrow Key: Rotate Left
+			if (GetAsyncKeyState(VK_LEFT)) {
+				viewMatrix *= XMMatrixRotationY(0.001f);
+			}
+
+			//Right Arrow Key: Rotate Right
+			if (GetAsyncKeyState(VK_RIGHT)) {
+				viewMatrix *= XMMatrixRotationY(-0.001f);
+			}
+
+			//Enter Key: Reset Camera
+			if (GetAsyncKeyState(VK_RETURN)) {
+				viewMatrix = ReturnViewMatrix;
+			}
+
+
 			// Rotate the second light around the origin
-			XMMATRIX mRotate = XMMatrixRotationY(-2*curDeg);
+			XMMATRIX mRotate = XMMatrixRotationY(-2 * curDeg);
 			XMVECTOR vLightDir = XMLoadFloat4(&myLightDirs[1]);
 			vLightDir = XMVector3Transform(vLightDir, mRotate);
-			XMStoreFloat4(&LightDir[1], vLightDir);
+			XMStoreFloat4(&myLightDirs[1], vLightDir);
 						
 
 			// TODO: Set your shaders, Update & Set your constant buffers, Attatch your Vertex & index buffers, Set your InputLayout & Topology & Draw!
@@ -484,6 +606,7 @@ void LetsDrawSomeStuff::Render()
 			constBuff.cWorld = XMMatrixTranspose(worldMatrix);
 			constBuff.cView = XMMatrixTranspose(viewMatrix);
 			constBuff.cProjection = XMMatrixTranspose(projectionMatrix);
+			constBuff.cRotateY = mRotate;
 			constBuff.cLightDir[0] = myLightDirs[0];
 			constBuff.cLightDir[1] = myLightDirs[1];
 			constBuff.cLightColor[0] = myLightColors[0];
@@ -493,8 +616,8 @@ void LetsDrawSomeStuff::Render()
 
 		//TODO: Render Cube
 			//Set Vertex Shader and Vertex Constant Buffer
-			myContext->VSSetShader(myVertexShader, nullptr, 0);
 			myContext->VSSetConstantBuffers(0, 1, &myConstantBuffer);
+			myContext->VSSetShader(myVertexShader, nullptr, 0);
 
 			//Set Pixel Shader and Pixel Constant Buffer
 			myContext->PSSetConstantBuffers(0, 1, &myConstantBuffer);
@@ -505,18 +628,22 @@ void LetsDrawSomeStuff::Render()
 			//Draw Cube
 			myContext->DrawIndexed(cubeIndicies.size(), 0, 0);
 
+			XMMATRIX lightMatrix = mRotate;
+
+			myContext->VSSetShader(myVertexLightShader, nullptr, 0);
+
 			for (int m = 0; m < 2; m++)
 			{
 				XMMATRIX mLight = XMMatrixTranslationFromVector(5.0f * XMLoadFloat4(&myLightDirs[m]));
-				XMMATRIX mLightScale = XMMatrixScaling(0.2f, 0.2f, 0.2f);
+				XMMATRIX mLightScale = XMMatrixScaling(0.5f, 0.5f, 0.5f);
 				mLight = mLightScale * mLight;
 
 				// Update the world variable to reflect the current light
 				constBuff.cWorld = XMMatrixTranspose(mLight);
-				constBuff.cOutputColor = XMFLOAT4(1,0,0,1);
+				constBuff.cOutputColor = myLightColors[m];
 				myContext->UpdateSubresource(myConstantBuffer, 0, nullptr, &constBuff, 0, 0);
-
-				myContext->PSSetShader(myPixelShaderSolid, nullptr, 0);
+								
+				myContext->PSSetShader(myLightPixelShader, nullptr, 0);
 				myContext->DrawIndexed(cubeIndicies.size(), 0, 0);
 			}
 			// Present Backbuffer using Swapchain object
